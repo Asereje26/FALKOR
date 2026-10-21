@@ -54,7 +54,7 @@ android {
                 ?.contains("creenshot") == true
             if (!isScreenshotTest) {
                 // only change the app name if we are not taking screenshots
-                resValue("string", "app_name", "Dicio-${gitBranch()}")
+                resValue("string", "app_name", "FALKOR")                
             }
         }
         release {
