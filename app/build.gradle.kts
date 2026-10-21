@@ -179,6 +179,8 @@ dependencies {
 
     // LiteRT / Tensorflow Lite
     implementation(libs.litert)
+    // ONNX Runtime for custom openWakeWord classifiers trained in Colab
+    implementation(libs.onnxruntime.android)
 
     // OkHttp
     implementation(platform(libs.okhttp.bom))
