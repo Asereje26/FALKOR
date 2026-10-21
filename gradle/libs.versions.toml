@@ -39,7 +39,7 @@ voskAndroid = "0.3.70"
 litert = "1.4.1" # cannot update to 2.0.0 as its minSdk is 23
 onnxruntimeAndroid = "1.24.3"
 permissionFlow = "2.1.0"
-minSdk = "21"
+minSdk = "24"
 targetSdk = "36"
 compileSdk = "36"
 
