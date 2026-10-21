@@ -108,7 +108,10 @@ class OpenWakeWordDevice(
             audio[i] = audio16bitPcm[i].toFloat() / 32768.0f
         }
 
-        return model!!.processFrame(audio) > 0.8f
+        // The FALKOR Colab trainer exports sigmoid probabilities and validates at 0.5.
+        // Keep the original Dicio threshold for legacy TFLite models.
+        val threshold = if (userWakeFile?.extension.equals("onnx", ignoreCase = true)) 0.5f else 0.8f
+        return model!!.processFrame(audio) > threshold
     }
 
     override fun frameSize(): Int {
