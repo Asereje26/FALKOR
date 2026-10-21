@@ -1,6 +1,7 @@
 package org.stypox.dicio.io.wake.oww
 
 import android.content.Context
+import android.provider.OpenableColumns
 import android.net.Uri
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -32,8 +33,8 @@ class OpenWakeWordDevice(
     private val melFile = FileToDownload(MEL_URL, File(owwFolder, "melspectrogram.tflite"))
     private val embFile = FileToDownload(EMB_URL, File(owwFolder, "embedding.tflite"))
     private val wakeFile = FileToDownload(WAKE_URL, File(owwFolder, "wake.tflite"))
-    private val userWakeFile = userWakeFile(appContext)
-    private val userWakeFileExists = userWakeFile.exists()
+    private val userWakeFile = userWakeModelFile(appContext)
+    private val userWakeFileExists = userWakeFile != null
     private val allModelFiles =
         // wakeFile is not needed if we want to use the userWakeFile instead
         if (userWakeFileExists) listOf(melFile, embFile)
@@ -93,7 +94,7 @@ class OpenWakeWordDevice(
                 model = OwwModel(
                     melFile.file,
                     embFile.file,
-                    if (userWakeFileExists) userWakeFile else wakeFile.file,
+                    if (userWakeFileExists) userWakeFile!! else wakeFile.file,
                 )
                 _state.value = WakeState.Loaded
             } catch (t: Throwable) {
@@ -130,36 +131,58 @@ class OpenWakeWordDevice(
         const val EMB_URL = "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.tflite"
         const val WAKE_URL = "https://github.com/Stypox/dicio-android/releases/download/v2.0/hey_dicio_v6.0.tflite"
 
-        private fun userWakeFile(context: Context) =
+        private fun userWakeTfliteFile(context: Context) =
             File(context.filesDir, "openWakeWord/userwake.tflite")
 
-        suspend fun addUserWakeFile(context: Context, source: Uri) {
-            // Use a partial file to ensure atomicity
-            val userWakeFile = userWakeFile(context)
-            withContext(Dispatchers.IO) {
-                val partialFile = File.createTempFile(userWakeFile.name, ".part", context.cacheDir)
-                val inputStream = context.contentResolver.openInputStream(source)
-                if (inputStream != null) {
-                    inputStream.use { source ->
-                        partialFile.outputStream().use {
-                            source.copyTo(it)
-                        }
-                    }
+        private fun userWakeOnnxFile(context: Context) =
+            File(context.filesDir, "openWakeWord/userwake.onnx")
 
-                    // Remove the previous file if it already exists
-                    userWakeFile.delete()
-                    userWakeFile.parentFile?.mkdirs()
-                    val renameOk = partialFile.renameTo(userWakeFile)
-                    if (!renameOk) {
-                        throw IOException("Cannot rename partial file $partialFile to actual file $userWakeFile")
+        private fun userWakeModelFile(context: Context): File? {
+            val onnx = userWakeOnnxFile(context)
+            if (onnx.exists()) return onnx
+            val tflite = userWakeTfliteFile(context)
+            return if (tflite.exists()) tflite else null
+        }
+
+        suspend fun addUserWakeFile(context: Context, source: Uri) {
+            withContext(Dispatchers.IO) {
+                val displayName = context.contentResolver.query(
+                    source, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                } ?: source.lastPathSegment.orEmpty()
+
+                val extension = displayName.substringAfterLast('.', "").lowercase()
+                if (extension != "onnx" && extension != "tflite") {
+                    throw IOException("Unsupported wake-word model. Choose an .onnx or .tflite file.")
+                }
+
+                val target = if (extension == "onnx") userWakeOnnxFile(context) else userWakeTfliteFile(context)
+                val other = if (extension == "onnx") userWakeTfliteFile(context) else userWakeOnnxFile(context)
+                val folder = target.parentFile ?: throw IOException("Invalid model folder")
+                if (!folder.exists() && !folder.mkdirs()) throw IOException("Cannot create model folder")
+                val partialFile = File.createTempFile(target.name, ".part", context.cacheDir)
+                try {
+                    val inputStream = context.contentResolver.openInputStream(source)
+                        ?: throw IOException("Cannot open selected model file")
+                    inputStream.use { input ->
+                        partialFile.outputStream().use { output -> input.copyTo(output) }
                     }
+                    if (target.exists() && !target.delete()) throw IOException("Cannot replace previous model")
+                    if (!partialFile.renameTo(target)) {
+                        throw IOException("Cannot move imported model into place")
+                    }
+                    other.delete()
+                } finally {
+                    partialFile.delete()
                 }
             }
         }
 
         suspend fun removeUserWakeFile(context: Context) {
             withContext(Dispatchers.IO) {
-                userWakeFile(context).delete()
+                userWakeOnnxFile(context).delete()
+                userWakeTfliteFile(context).delete()
             }
         }
     }
