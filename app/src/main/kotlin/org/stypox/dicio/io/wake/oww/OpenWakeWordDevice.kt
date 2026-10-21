@@ -33,8 +33,12 @@ class OpenWakeWordDevice(
     private val melFile = FileToDownload(MEL_URL, File(owwFolder, "melspectrogram.tflite"))
     private val embFile = FileToDownload(EMB_URL, File(owwFolder, "embedding.tflite"))
     private val wakeFile = FileToDownload(WAKE_URL, File(owwFolder, "wake.tflite"))
-    // Resolve the custom model dynamically so importing it while the app is open takes effect.
-    private val allModelFiles = listOf(melFile, embFile, wakeFile)
+    private val userWakeFile = userWakeModelFile(appContext)
+    private val userWakeFileExists = userWakeFile != null
+    private val allModelFiles =
+        // wakeFile is not needed if we want to use the userWakeFile instead
+        if (userWakeFileExists) listOf(melFile, embFile)
+        else listOf(melFile, embFile, wakeFile)
 
     private val audio = FloatArray(OwwModel.MEL_INPUT_COUNT)
     private var model: OwwModel? = null
@@ -90,7 +94,7 @@ class OpenWakeWordDevice(
                 model = OwwModel(
                     melFile.file,
                     embFile.file,
-                    userWakeModelFile(appContext) ?: wakeFile.file,
+                    if (userWakeFileExists) userWakeFile!! else wakeFile.file,
                 )
                 _state.value = WakeState.Loaded
             } catch (t: Throwable) {
@@ -106,8 +110,7 @@ class OpenWakeWordDevice(
 
         // The FALKOR Colab trainer exports sigmoid probabilities and validates at 0.5.
         // Keep the original Dicio threshold for legacy TFLite models.
-        val activeWakeFile = userWakeModelFile(appContext) ?: wakeFile.file
-        val threshold = if (activeWakeFile.extension.equals("onnx", ignoreCase = true)) 0.5f else 0.8f
+        val threshold = if (userWakeFile?.extension.equals("onnx", ignoreCase = true)) 0.5f else 0.8f
         return model!!.processFrame(audio) > threshold
     }
 
@@ -123,7 +126,7 @@ class OpenWakeWordDevice(
         scope.cancel()
     }
 
-    override fun isHeyDicio(): Boolean = userWakeModelFile(appContext) == null
+    override fun isHeyDicio(): Boolean = !userWakeFileExists
 
     companion object {
         val TAG = OpenWakeWordDevice::class.simpleName
